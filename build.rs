@@ -16,9 +16,9 @@ fn command_output(cmd: &mut Command) -> String {
 fn main() {
     if command_ok(Command::new("stack").arg("--version")) {
         let ghc_lib =
-            command_output(Command::new("stack").args(&["exec", "--", "ghc", "--print-libdir"]));
+            command_output(Command::new("stack").current_dir("duckling-ffi").args(&["exec", "--", "ghc", "--print-libdir"]));
         let ghc_version =
-            command_output(Command::new("stack").args(&["exec", "--", "ghc", "--numeric-version"]));
+            command_output(Command::new("stack").current_dir("duckling-ffi").args(&["exec", "--", "ghc", "--numeric-version"]));
         let dir_path = env::current_dir().unwrap();
         let path = dir_path.to_str().unwrap();
         let ghc_lib_path = Path::new(&ghc_lib);
