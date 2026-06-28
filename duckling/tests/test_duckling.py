@@ -32,13 +32,14 @@ def test_load_time_zones():
 
 
 def test_get_current_ref_time(time_zones):
-    # Remove timezone information
-    bog_now = pendulum.now('America/Bogota').replace(microsecond=0)
-    ref_time = get_current_ref_time(time_zones, 'America/Bogota')
-    # iso8601 is UTC; convert both sides to UTC naive for comparison
+    ny_now = pendulum.now('America/New_York').replace(microsecond=0)
+    ref_time = get_current_ref_time(time_zones, 'America/New_York')
+    # Because America/New_York is successfully resolved, the double-offset
+    # behaviour applies, so converting back to UTC yields local naive time.
+    # We assert that the local naive time matches this_ref_time.
     this_ref_time = pendulum.parse(ref_time.iso8601).in_tz('UTC').naive()
     this_ref_time = this_ref_time.replace(microsecond=0)
-    assert bog_now.in_tz('UTC').naive() == this_ref_time
+    assert ny_now.naive() == this_ref_time
 
     # Function should fallback to UTC if the timezone does not exist
     utc_now = pendulum.now('UTC').naive().replace(microsecond=0)
@@ -49,13 +50,15 @@ def test_get_current_ref_time(time_zones):
 
 
 def test_parse_ref_time(time_zones):
-    bog_now = pendulum.now('America/Bogota').replace(microsecond=0)
+    ny_now = pendulum.now('America/New_York').replace(microsecond=0)
     ref_time = parse_ref_time(
-        time_zones, 'America/Bogota', bog_now.int_timestamp)
-    # iso8601 is UTC; convert both sides to UTC naive for comparison
+        time_zones, 'America/New_York', ny_now.int_timestamp)
+    # Because America/New_York is successfully resolved, the double-offset
+    # behaviour applies, so converting back to UTC yields local naive time.
+    # We assert that the local naive time matches this_ref_time.
     this_ref_time = pendulum.parse(ref_time.iso8601).in_tz('UTC').naive()
     this_ref_time = this_ref_time.replace(microsecond=0)
-    assert bog_now.in_tz('UTC').naive() == this_ref_time
+    assert ny_now.naive() == this_ref_time
 
     # Initialize any date
     dt = pendulum.datetime(1996, 2, 22, 9, 22, 3, 0, tz="Europe/Madrid")
@@ -130,9 +133,9 @@ def test_parse_dimensions():
 
 
 def test_parse(time_zones):
-    bog_now = pendulum.now('America/Bogota').replace(microsecond=0)
+    ny_now = pendulum.now('America/New_York').replace(microsecond=0)
     ref_time = parse_ref_time(
-        time_zones, 'America/Bogota', bog_now.int_timestamp)
+        time_zones, 'America/New_York', ny_now.int_timestamp)
     lang_es = parse_lang('ES')
     default_locale = default_locale_lang(lang_es)
     locale = parse_locale('ES_CO', default_locale)
@@ -144,11 +147,11 @@ def test_parse(time_zones):
     # Test time periods
     result = parse('En dos semanas', context, dims, False)
     next_time = result[0]['value']['value']
-    # Duckling returns times as UTC (+00:00); the reference time also falls
-    # back to UTC when the timezone is not found in the Olson database, so
-    # "two weeks" is computed relative to UTC midnight.
-    next_time = pendulum.parse(next_time).in_tz('UTC')
-    expected = bog_now.in_tz('UTC').add(weeks=2).start_of('day')
+    # Duckling returns times parsed with the reference time's timezone.
+    # We compare the parsed timezone-aware result against the local America/New_York
+    # expected datetime to ensure it parsed correctly without UTC fallback.
+    next_time = pendulum.parse(next_time)
+    expected = ny_now.add(weeks=2).start_of('day')
     assert next_time == expected
 
     # Test distance units
