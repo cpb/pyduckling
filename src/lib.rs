@@ -10,10 +10,8 @@
 // use pyo3::class::PyMappingProtocol;
 use pyo3::create_exception;
 use pyo3::exceptions;
-use pyo3::gc::{PyGCProtocol, PyVisit};
 use pyo3::prelude::*;
 use pyo3::wrap_pyfunction;
-use pyo3::PyTraverseError;
 
 use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_int};
@@ -21,6 +19,19 @@ use std::ptr;
 use std::slice;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Once;
+use std::sync::Arc;
+
+#[derive(Debug)]
+struct SafeHaskellPtr {
+    ptr: *mut HaskellValue,
+    destroy_fn: unsafe extern "C" fn(*mut HaskellValue),
+}
+
+impl Drop for SafeHaskellPtr {
+    fn drop(&mut self) {
+        unsafe { (self.destroy_fn)(self.ptr); }
+    }
+}
 
 // Package version
 const VERSION: &'static str = env!("CARGO_PKG_VERSION");
@@ -83,7 +94,7 @@ extern "C" {
     pub fn hs_exit();
 }
 
-create_exception!(pyduckling, RuntimeStoppedError, exceptions::Exception);
+create_exception!(pyduckling, RuntimeStoppedError, exceptions::PyException);
 
 /// Initialize the Haskell runtime. This function is safe to call more than once, and
 /// will do nothing on subsequent calls.
@@ -116,7 +127,7 @@ pub fn stop() -> PyResult<()> {
         let err = "Haskell: The GHC runtime may only be stopped once. See \
       https://downloads.haskell.org/%7Eghc/latest/docs/html/users_guide\
       /ffi-chap.html#id1";
-        let exc = RuntimeStoppedError::py_err(err.to_string());
+        let exc = RuntimeStoppedError::new_err(err.to_string());
         return Err(exc);
     }
     stop_hs();
@@ -136,21 +147,10 @@ extern "C" fn stop_hs() {
 }
 
 /// Handle to the time zone database stored by Duckling
-#[pyclass(name=TimeZoneDatabase)]
+#[pyclass(name="TimeZoneDatabase", unsendable)]
 #[derive(Debug, Clone)]
 pub struct TimeZoneDatabaseWrapper {
-    ptr: *mut HaskellValue,
-}
-
-#[pyproto]
-impl PyGCProtocol for TimeZoneDatabaseWrapper {
-    fn __traverse__(&self, _visit: PyVisit) -> Result<(), PyTraverseError> {
-        Ok(())
-    }
-
-    fn __clear__(&mut self) {
-        unsafe { tzdbDestroy(self.ptr) }
-    }
+    ptr: Arc<SafeHaskellPtr>,
 }
 
 // impl Drop for TimeZoneDatabaseWrapper {
@@ -163,17 +163,17 @@ impl PyGCProtocol for TimeZoneDatabaseWrapper {
 // }
 
 /// Handle to the time zone database stored by Duckling
-#[pyclass(name=DucklingTime)]
+#[pyclass(name="DucklingTime", unsendable)]
 #[derive(Debug, Clone)]
 pub struct DucklingTimeWrapper {
-    ptr: *mut HaskellValue,
+    ptr: Arc<SafeHaskellPtr>,
 }
 
 #[pymethods]
 impl DucklingTimeWrapper {
     #[getter]
     fn iso8601(&self) -> PyResult<String> {
-        let c_value = unsafe { duckTimeRepr(self.ptr) };
+        let c_value = unsafe { duckTimeRepr(self.ptr.ptr) };
         let string_result = unsafe {
             CStr::from_ptr(c_value)
                 .to_string_lossy()
@@ -184,29 +184,18 @@ impl DucklingTimeWrapper {
     }
 }
 
-#[pyproto]
-impl PyGCProtocol for DucklingTimeWrapper {
-    fn __traverse__(&self, _visit: PyVisit) -> Result<(), PyTraverseError> {
-        Ok(())
-    }
-
-    fn __clear__(&mut self) {
-        unsafe { duckTimeDestroy(self.ptr) }
-    }
-}
-
 /// Handle to a language code stored by Duckling
-#[pyclass(name=Language)]
+#[pyclass(name="Language", unsendable)]
 #[derive(Debug, Clone)]
 pub struct LanguageWrapper {
-    ptr: *mut HaskellValue,
+    ptr: Arc<SafeHaskellPtr>,
 }
 
 #[pymethods]
 impl LanguageWrapper {
     #[getter]
     fn name(&self) -> PyResult<String> {
-        let c_value = unsafe { langRepr(self.ptr) };
+        let c_value = unsafe { langRepr(self.ptr.ptr) };
         let string_result = unsafe {
             CStr::from_ptr(c_value)
                 .to_string_lossy()
@@ -217,29 +206,18 @@ impl LanguageWrapper {
     }
 }
 
-#[pyproto]
-impl PyGCProtocol for LanguageWrapper {
-    fn __traverse__(&self, _visit: PyVisit) -> Result<(), PyTraverseError> {
-        Ok(())
-    }
-
-    fn __clear__(&mut self) {
-        unsafe { langDestroy(self.ptr) }
-    }
-}
-
 /// Handle to a locale code stored by Duckling
-#[pyclass(name=Locale)]
+#[pyclass(name="Locale", unsendable)]
 #[derive(Debug, Clone)]
 pub struct LocaleWrapper {
-    ptr: *mut HaskellValue,
+    ptr: Arc<SafeHaskellPtr>,
 }
 
 #[pymethods]
 impl LocaleWrapper {
     #[getter]
     fn name(&self) -> PyResult<String> {
-        let c_value = unsafe { localeRepr(self.ptr) };
+        let c_value = unsafe { localeRepr(self.ptr.ptr) };
         let string_result = unsafe {
             CStr::from_ptr(c_value)
                 .to_string_lossy()
@@ -250,36 +228,14 @@ impl LocaleWrapper {
     }
 }
 
-#[pyproto]
-impl PyGCProtocol for LocaleWrapper {
-    fn __traverse__(&self, _visit: PyVisit) -> Result<(), PyTraverseError> {
-        Ok(())
-    }
-
-    fn __clear__(&mut self) {
-        unsafe { localeDestroy(self.ptr) }
-    }
-}
-
 /// Handle to a parsing dimension identifier
-#[pyclass(name=Dimension)]
+#[pyclass(name="Dimension", unsendable)]
 #[derive(Debug, Clone)]
 pub struct DimensionWrapper {
-    ptr: *mut HaskellValue,
+    ptr: Arc<SafeHaskellPtr>,
 }
 
-#[pyproto]
-impl PyGCProtocol for DimensionWrapper {
-    fn __traverse__(&self, _visit: PyVisit) -> Result<(), PyTraverseError> {
-        Ok(())
-    }
-
-    fn __clear__(&mut self) {
-        unsafe { dimensionDestroy(self.ptr) }
-    }
-}
-
-#[pyclass]
+#[pyclass(unsendable)]
 #[derive(Debug, Clone)]
 pub struct Context {
     pub reference_time: DucklingTimeWrapper,
@@ -314,7 +270,12 @@ fn load_time_zones(path: &str) -> PyResult<TimeZoneDatabaseWrapper> {
     // let c_str = WrappedString::new(path);
     let c_str = CString::new(path).expect("CString::new failed");
     let haskell_ptr = unsafe { wloadTimeZoneSeries(c_str.as_ptr()) };
-    let result = TimeZoneDatabaseWrapper { ptr: haskell_ptr };
+    let result = TimeZoneDatabaseWrapper {
+        ptr: Arc::new(SafeHaskellPtr {
+            ptr: haskell_ptr,
+            destroy_fn: tzdbDestroy,
+        }),
+    };
     Ok(result)
 }
 
@@ -335,8 +296,13 @@ fn load_time_zones(path: &str) -> PyResult<TimeZoneDatabaseWrapper> {
 fn get_current_ref_time(tz_db: TimeZoneDatabaseWrapper, tz: &str) -> PyResult<DucklingTimeWrapper> {
     // let c_str = WrappedString::new(tz);
     let tz_c_str = CString::new(tz).expect("CString::new failed");
-    let haskell_tz = unsafe { wcurrentReftime(tz_db.ptr, tz_c_str.as_ptr()) };
-    let result = DucklingTimeWrapper { ptr: haskell_tz };
+    let haskell_tz = unsafe { wcurrentReftime(tz_db.ptr.ptr, tz_c_str.as_ptr()) };
+    let result = DucklingTimeWrapper {
+        ptr: Arc::new(SafeHaskellPtr {
+            ptr: haskell_tz,
+            destroy_fn: duckTimeDestroy,
+        }),
+    };
     Ok(result)
 }
 
@@ -362,8 +328,13 @@ fn parse_ref_time(
     timestamp: i64,
 ) -> PyResult<DucklingTimeWrapper> {
     let tz_c_str = CString::new(tz).expect("CString::new failed");
-    let haskell_tz = unsafe { wparseRefTime(tz_db.ptr, tz_c_str.as_ptr(), timestamp) };
-    let result = DucklingTimeWrapper { ptr: haskell_tz };
+    let haskell_tz = unsafe { wparseRefTime(tz_db.ptr.ptr, tz_c_str.as_ptr(), timestamp) };
+    let result = DucklingTimeWrapper {
+        ptr: Arc::new(SafeHaskellPtr {
+            ptr: haskell_tz,
+            destroy_fn: duckTimeDestroy,
+        }),
+    };
     Ok(result)
 }
 
@@ -384,7 +355,12 @@ fn parse_ref_time(
 fn parse_lang(lang: &str) -> PyResult<LanguageWrapper> {
     let lang_c_str = CString::new(lang).expect("CString::new failed");
     let haskell_lang = unsafe { wparseLang(lang_c_str.as_ptr()) };
-    let result = LanguageWrapper { ptr: haskell_lang };
+    let result = LanguageWrapper {
+        ptr: Arc::new(SafeHaskellPtr {
+            ptr: haskell_lang,
+            destroy_fn: langDestroy,
+        }),
+    };
     Ok(result)
 }
 
@@ -401,9 +377,12 @@ fn parse_lang(lang: &str) -> PyResult<LanguageWrapper> {
 ///     Opaque handle to the default language locale
 #[pyfunction]
 fn default_locale_lang(lang: LanguageWrapper) -> PyResult<LocaleWrapper> {
-    let haskell_locale = unsafe { wmakeDefaultLocale(lang.ptr) };
+    let haskell_locale = unsafe { wmakeDefaultLocale(lang.ptr.ptr) };
     let result = LocaleWrapper {
-        ptr: haskell_locale,
+        ptr: Arc::new(SafeHaskellPtr {
+            ptr: haskell_locale,
+            destroy_fn: localeDestroy,
+        }),
     };
     Ok(result)
 }
@@ -425,9 +404,12 @@ fn default_locale_lang(lang: LanguageWrapper) -> PyResult<LocaleWrapper> {
 #[pyfunction]
 fn parse_locale(locale: &str, default_locale: LocaleWrapper) -> PyResult<LocaleWrapper> {
     let locale_c_str = CString::new(locale).expect("CString::new failed");
-    let haskell_locale = unsafe { wparseLocale(locale_c_str.as_ptr(), default_locale.ptr) };
+    let haskell_locale = unsafe { wparseLocale(locale_c_str.as_ptr(), default_locale.ptr.ptr) };
     let result = LocaleWrapper {
-        ptr: haskell_locale,
+        ptr: Arc::new(SafeHaskellPtr {
+            ptr: haskell_locale,
+            destroy_fn: localeDestroy,
+        }),
     };
     Ok(result)
 }
@@ -462,7 +444,12 @@ fn parse_dimensions(dims: Vec<String>) -> PyResult<Vec<DimensionWrapper>> {
     let ptr_slice = unsafe { slice::from_raw_parts(haskell_ptrs, haskell_length as usize) };
     let mut result_vec: Vec<DimensionWrapper> = Vec::new();
     for ptr in ptr_slice {
-        let wrapper = DimensionWrapper { ptr: *ptr };
+        let wrapper = DimensionWrapper {
+            ptr: Arc::new(SafeHaskellPtr {
+                ptr: *ptr,
+                destroy_fn: dimensionDestroy,
+            }),
+        };
         result_vec.push(wrapper);
     }
     Ok(result_vec)
@@ -496,13 +483,13 @@ fn parse_text(
     let reference_time = context.reference_time;
     let locale = context.locale;
     let n_elems = dimensions.len() as i32;
-    let c_dims: Vec<*mut HaskellValue> = dimensions.iter().map(|d| d.ptr).collect();
+    let c_dims: Vec<*mut HaskellValue> = dimensions.iter().map(|d| d.ptr.ptr).collect();
     let dim_list = unsafe { dimensionListCreate(c_dims.as_ptr(), n_elems) };
     let haskell_entities = unsafe {
         wparseText(
             c_text.as_ptr(),
-            reference_time.ptr,
-            locale.ptr,
+            reference_time.ptr.ptr,
+            locale.ptr.ptr,
             dim_list,
             with_latent as u8,
         )
@@ -521,16 +508,16 @@ fn parse_text(
 fn duckling(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add("__version__", VERSION)?;
     m.add("GHC_VERSION", GHC_VERSION)?;
-    m.add_wrapped(wrap_pyfunction!(load_time_zones))?;
-    m.add_wrapped(wrap_pyfunction!(get_current_ref_time))?;
-    m.add_wrapped(wrap_pyfunction!(parse_ref_time))?;
-    m.add_wrapped(wrap_pyfunction!(parse_lang))?;
-    m.add_wrapped(wrap_pyfunction!(default_locale_lang))?;
-    m.add_wrapped(wrap_pyfunction!(parse_locale))?;
-    m.add_wrapped(wrap_pyfunction!(parse_dimensions))?;
-    m.add_wrapped(wrap_pyfunction!(parse_text))?;
-    m.add_wrapped(wrap_pyfunction!(init))?;
-    m.add_wrapped(wrap_pyfunction!(stop))?;
+    m.add_function(wrap_pyfunction!(load_time_zones, m)?)?;
+    m.add_function(wrap_pyfunction!(get_current_ref_time, m)?)?;
+    m.add_function(wrap_pyfunction!(parse_ref_time, m)?)?;
+    m.add_function(wrap_pyfunction!(parse_lang, m)?)?;
+    m.add_function(wrap_pyfunction!(default_locale_lang, m)?)?;
+    m.add_function(wrap_pyfunction!(parse_locale, m)?)?;
+    m.add_function(wrap_pyfunction!(parse_dimensions, m)?)?;
+    m.add_function(wrap_pyfunction!(parse_text, m)?)?;
+    m.add_function(wrap_pyfunction!(init, m)?)?;
+    m.add_function(wrap_pyfunction!(stop, m)?)?;
     m.add_class::<TimeZoneDatabaseWrapper>()?;
     m.add_class::<Context>()?;
     m.add_class::<DucklingTimeWrapper>()?;
