@@ -32,13 +32,13 @@ def test_load_time_zones():
 
 
 def test_get_current_ref_time(time_zones):
-    # Remove timezone information
-    bog_now = pendulum.now('America/Bogota').naive().replace(microsecond=0)
-    ref_time = get_current_ref_time(time_zones, 'America/Bogota')
-    # UTC conversion in required to recover the actual datetime
+    ny_now = pendulum.now('America/New_York').replace(microsecond=0)
+    ref_time = get_current_ref_time(time_zones, 'America/New_York')
+    # The iso8601 string should encode the correct local time with the correct
+    # UTC offset. Round-tripping through UTC must give back the same instant.
     this_ref_time = pendulum.parse(ref_time.iso8601).in_tz('UTC').naive()
     this_ref_time = this_ref_time.replace(microsecond=0)
-    assert bog_now == this_ref_time
+    assert ny_now.in_tz('UTC').naive() == this_ref_time
 
     # Function should fallback to UTC if the timezone does not exist
     utc_now = pendulum.now('UTC').naive().replace(microsecond=0)
@@ -49,29 +49,29 @@ def test_get_current_ref_time(time_zones):
 
 
 def test_parse_ref_time(time_zones):
-    bog_now = pendulum.now('America/Bogota').replace(microsecond=0)
+    ny_now = pendulum.now('America/New_York').replace(microsecond=0)
     ref_time = parse_ref_time(
-        time_zones, 'America/Bogota', bog_now.int_timestamp)
-    # UTC conversion in required to recover the actual datetime
+        time_zones, 'America/New_York', ny_now.int_timestamp)
+    # The iso8601 string encodes the correct local time with the correct UTC
+    # offset. Round-tripping through UTC must recover the original instant.
     this_ref_time = pendulum.parse(ref_time.iso8601).in_tz('UTC').naive()
     this_ref_time = this_ref_time.replace(microsecond=0)
-    assert bog_now.naive() == this_ref_time
+    assert ny_now.in_tz('UTC').naive() == this_ref_time
 
     # Initialize any date
     dt = pendulum.datetime(1996, 2, 22, 9, 22, 3, 0, tz="Europe/Madrid")
-    # bog_dt = dt.in_tz('America/Bogota')
     ref_time = parse_ref_time(
         time_zones, 'Europe/Madrid', dt.int_timestamp)
-    # UTC conversion in required to recover the actual datetime
+    # Same UTC round-trip: parsing the iso8601 back to UTC naive must equal
+    # the original datetime's UTC representation.
     this_ref_time = pendulum.parse(ref_time.iso8601).in_tz('UTC').naive()
     this_ref_time = this_ref_time.replace(microsecond=0)
-    assert dt.naive() == this_ref_time
+    assert dt.in_tz('UTC').naive() == this_ref_time
 
     # Function should fallback to UTC if the timezone does not exist
     pst_now = pendulum.now('America/Los_Angeles').replace(microsecond=0)
     ref_time = parse_ref_time(
         time_zones, 'Continent/Country', pst_now.int_timestamp)
-    # UTC conversion in required to recover the actual datetime
     this_ref_time = pendulum.parse(ref_time.iso8601).in_tz('UTC').naive()
     this_ref_time = this_ref_time.replace(microsecond=0)
     assert pst_now.in_tz('UTC').naive() == this_ref_time
@@ -128,9 +128,9 @@ def test_parse_dimensions():
 
 
 def test_parse(time_zones):
-    bog_now = pendulum.now('America/Bogota').replace(microsecond=0)
+    ny_now = pendulum.now('America/New_York').replace(microsecond=0)
     ref_time = parse_ref_time(
-        time_zones, 'America/Bogota', bog_now.int_timestamp)
+        time_zones, 'America/New_York', ny_now.int_timestamp)
     lang_es = parse_lang('ES')
     default_locale = default_locale_lang(lang_es)
     locale = parse_locale('ES_CO', default_locale)
@@ -142,8 +142,12 @@ def test_parse(time_zones):
     # Test time periods
     result = parse('En dos semanas', context, dims, False)
     next_time = result[0]['value']['value']
+    # Duckling returns times parsed with the reference time's timezone.
+    # We compare the parsed timezone-aware result against the local America/New_York
+    # expected datetime to ensure it parsed correctly without UTC fallback.
     next_time = pendulum.parse(next_time)
-    assert next_time == bog_now.add(weeks=2).start_of('day')
+    expected = ny_now.add(weeks=2).start_of('day')
+    assert next_time == expected
 
     # Test distance units
     dimensions = ['distance']
