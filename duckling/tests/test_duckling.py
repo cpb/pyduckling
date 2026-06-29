@@ -34,12 +34,11 @@ def test_load_time_zones():
 def test_get_current_ref_time(time_zones):
     ny_now = pendulum.now('America/New_York').replace(microsecond=0)
     ref_time = get_current_ref_time(time_zones, 'America/New_York')
-    # Because America/New_York is successfully resolved, the double-offset
-    # behaviour applies, so converting back to UTC yields local naive time.
-    # We assert that the local naive time matches this_ref_time.
+    # The iso8601 string should encode the correct local time with the correct
+    # UTC offset. Round-tripping through UTC must give back the same instant.
     this_ref_time = pendulum.parse(ref_time.iso8601).in_tz('UTC').naive()
     this_ref_time = this_ref_time.replace(microsecond=0)
-    assert ny_now.naive() == this_ref_time
+    assert ny_now.in_tz('UTC').naive() == this_ref_time
 
     # Function should fallback to UTC if the timezone does not exist
     utc_now = pendulum.now('UTC').naive().replace(microsecond=0)
@@ -53,30 +52,26 @@ def test_parse_ref_time(time_zones):
     ny_now = pendulum.now('America/New_York').replace(microsecond=0)
     ref_time = parse_ref_time(
         time_zones, 'America/New_York', ny_now.int_timestamp)
-    # Because America/New_York is successfully resolved, the double-offset
-    # behaviour applies, so converting back to UTC yields local naive time.
-    # We assert that the local naive time matches this_ref_time.
+    # The iso8601 string encodes the correct local time with the correct UTC
+    # offset. Round-tripping through UTC must recover the original instant.
     this_ref_time = pendulum.parse(ref_time.iso8601).in_tz('UTC').naive()
     this_ref_time = this_ref_time.replace(microsecond=0)
-    assert ny_now.naive() == this_ref_time
+    assert ny_now.in_tz('UTC').naive() == this_ref_time
 
     # Initialize any date
     dt = pendulum.datetime(1996, 2, 22, 9, 22, 3, 0, tz="Europe/Madrid")
     ref_time = parse_ref_time(
         time_zones, 'Europe/Madrid', dt.int_timestamp)
-    # duckTimeRepr formats ZoneSeriesTime with formatTime which has a known
-    # double-offset behaviour: the local time in iso8601 is shifted by the
-    # UTC offset a second time.  Converting the iso8601 back to UTC cancels
-    # one offset, leaving the original local time.  Compare as naive local.
+    # Same UTC round-trip: parsing the iso8601 back to UTC naive must equal
+    # the original datetime's UTC representation.
     this_ref_time = pendulum.parse(ref_time.iso8601).in_tz('UTC').naive()
     this_ref_time = this_ref_time.replace(microsecond=0)
-    assert dt.naive() == this_ref_time
+    assert dt.in_tz('UTC').naive() == this_ref_time
 
     # Function should fallback to UTC if the timezone does not exist
     pst_now = pendulum.now('America/Los_Angeles').replace(microsecond=0)
     ref_time = parse_ref_time(
         time_zones, 'Continent/Country', pst_now.int_timestamp)
-    # UTC conversion in required to recover the actual datetime
     this_ref_time = pendulum.parse(ref_time.iso8601).in_tz('UTC').naive()
     this_ref_time = this_ref_time.replace(microsecond=0)
     assert pst_now.in_tz('UTC').naive() == this_ref_time
